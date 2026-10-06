@@ -1,0 +1,78 @@
+# Publishes Tracepoint to nuget.org when a version tag is pushed.
+#
+# One-time setup:
+# 1. Create a GitHub Environment named "nuget" (optional approval before publish).
+# 2. Add repository secret NUGET_USER = your nuget.org profile name, not the email address.
+# 3. On nuget.org, add a Trusted Publishing policy:
+#    Repository owner: konnta0
+#    Repository: Tracepoint
+#    Workflow file: release.yml
+#    Environment: nuget
+#
+# Pushing v1.2.3 publishes 1.2.3. Pushing v1.2.3-preview.1 publishes that prerelease.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require a version tag
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            echo "Run this workflow from a vX.Y.Z tag."
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag '${GITHUB_REF_NAME}' is not a SemVer version."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_ENV"
+          echo "assembly_version=${version%%-*}.0" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test
+        run: dotnet test Tracepoint.slnx -c Release --nologo
+
+      - name: Pack
+        run: |
+          dotnet pack src/Tracepoint/Tracepoint.csproj -c Release -o artifacts --nologo \
+            -p:Version="${version}" \
+            -p:InformationalVersion="${version}" \
+            -p:AssemblyVersion="${assembly_version}" \
+            -p:FileVersion="${assembly_version}" \
+            -p:ContinuousIntegrationBuild=true
+
+      - name: Package contains the weaver and analyzer
+        run: |
+          tar -tf "artifacts/Tracepoint.${version}.nupkg" | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'
+          test -f "artifacts/Tracepoint.${version}.snupkg"
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to nuget.org
+        run: |
+          dotnet nuget push "artifacts/Tracepoint.${version}.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+            --skip-duplicate
