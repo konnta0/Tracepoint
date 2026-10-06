@@ -1,6 +1,8 @@
 # Tracepoint
 
-C# メソッドに `[Trace]` を付けると、`System.Diagnostics.Activity` の span をコンパイル時に織り込みます。OpenTelemetry SDK には依存しません。
+English | [日本語](README.ja.md)
+
+Adding `[Trace]` to a C# method weaves a `System.Diagnostics.Activity` span at compile time. Tracepoint does not depend on the OpenTelemetry SDK.
 
 ```csharp
 using Tracepoint;
@@ -21,20 +23,20 @@ services
     .WithTracing(builder => builder.AddSource(TracepointSources.Name));
 ```
 
-span 名の既定値は `{TypeName}.{MethodName}` です。`[Trace("matchmaking.find")]` で明示できます。`[TraceTag]` を付けた引数だけが span attribute になります。
+The default span name is `{TypeName}.{MethodName}`. Pass an explicit name with `[Trace("matchmaking.find")]`. Only parameters marked with `[TraceTag]` are recorded as span attributes.
 
-listener が無いとき、織り込まれた同期メソッドの managed allocation は 0 です。未処理例外は `ActivityStatusCode.Error` と `Activity.AddException` で記録し、例外はそのまま再送出します。
+A woven synchronous method allocates 0 managed bytes when no listener is subscribed. An unhandled exception is recorded with `ActivityStatusCode.Error` and `Activity.AddException`, then rethrown unchanged.
 
 ## Diagnostics
 
-| ID | 内容 |
+| ID | Description |
 |---|---|
-| TP001 | 未対応の `TraceTag` 型。対応は `string`、`bool`、`int`、`long`、`double` |
-| TP003 | 空白だけの trace 名または tag 名 |
-| TP004 | 未対応メソッド（generic method、iterator、`async void`、本体なし、local function） |
-| TP005 | `[Trace]` のないメソッドへの `TraceTag` |
+| TP001 | Unsupported `TraceTag` type. Supported types are `string`, `bool`, `int`, `long`, and `double` |
+| TP003 | Trace or tag name that is empty or whitespace |
+| TP004 | Unsupported method (generic method, iterator, `async void`, method without a body, local function) |
+| TP005 | `TraceTag` on a method that does not have `Trace` |
 
-`TracepointWeave` を `false` にすると織り込みを止めます。
+Set `TracepointWeave` to `false` to disable weaving.
 
 ## Benchmark
 
@@ -42,4 +44,4 @@ listener が無いとき、織り込まれた同期メソッドの managed alloc
 dotnet run -c Release --project benchmarks/Tracepoint.Benchmarks
 ```
 
-同期と async のそれぞれで、`Baseline`、`ManualActivity_*`、`Tracepoint_*`（`NoListener` / `NotRecorded` / `Recorded`）を比較します。`NotRecorded` は `ActivitySamplingResult.PropagationData` です。
+Sync and async benchmarks compare `Baseline`, `ManualActivity_*`, and `Tracepoint_*` for `NoListener`, `NotRecorded`, and `Recorded`. `NotRecorded` uses `ActivitySamplingResult.PropagationData`.
