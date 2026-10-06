@@ -1,0 +1,31 @@
+<Project>
+  <PropertyGroup>
+    <TracepointWeave Condition="'$(TracepointWeave)' == ''">true</TracepointWeave>
+    <TracepointWeaverAssembly Condition="'$(TracepointWeaverAssembly)' == '' AND Exists('$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)Tracepoint.Weaver.dll))')">$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)Tracepoint.Weaver.dll))</TracepointWeaverAssembly>
+    <TracepointWeaverAssembly Condition="'$(TracepointWeaverAssembly)' == ''">$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)..\..\Tracepoint.Weaver\bin\$(Configuration)\net10.0\Tracepoint.Weaver.dll))</TracepointWeaverAssembly>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CustomAdditionalCompileInputs Include="$(TracepointWeaverAssembly)" />
+  </ItemGroup>
+
+  <UsingTask TaskName="Tracepoint.Weaving.WeaveTask" AssemblyFile="$(TracepointWeaverAssembly)" />
+
+  <Target Name="TracepointWeave"
+          AfterTargets="CoreCompile"
+          BeforeTargets="CopyFilesToOutputDirectory"
+          Condition="'$(TracepointWeave)' == 'true' AND '$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_TracepointAssembly>$(IntermediateOutputPath)$(TargetFileName)</_TracepointAssembly>
+      <_TracepointAssembly Condition="!$([System.IO.Path]::IsPathRooted($(_TracepointAssembly)))">$([System.IO.Path]::Combine($(MSBuildProjectDirectory), $(_TracepointAssembly)))</_TracepointAssembly>
+      <_TracepointAssembly>$([System.IO.Path]::GetFullPath($(_TracepointAssembly)))</_TracepointAssembly>
+    </PropertyGroup>
+    <Error Text="Tracepoint weaver was not found at '$(TracepointWeaverAssembly)'." Condition="!Exists('$(TracepointWeaverAssembly)')" />
+    <Error Text="Tracepoint could not find '$(_TracepointAssembly)'." Condition="!Exists('$(_TracepointAssembly)')" />
+    <ItemGroup>
+      <_TracepointReference Include="@(ReferencePathWithRefAssemblies)" />
+      <_TracepointReference Include="@(ReferencePath)" />
+    </ItemGroup>
+    <WeaveTask AssemblyPath="$(_TracepointAssembly)" References="@(_TracepointReference)" />
+  </Target>
+</Project>

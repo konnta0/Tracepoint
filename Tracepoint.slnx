@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Tracepoint.Benchmarks/Tracepoint.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Tracepoint.Analyzer/Tracepoint.Analyzer.csproj" />
+    <Project Path="src/Tracepoint.Weaver/Tracepoint.Weaver.csproj" />
+    <Project Path="src/Tracepoint/Tracepoint.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tracepoint.Smoke/Tracepoint.Smoke.csproj" />
+    <Project Path="tests/Tracepoint.Tests/Tracepoint.Tests.csproj" />
+  </Folder>
+</Solution>

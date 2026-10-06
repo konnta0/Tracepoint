@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <InformationalVersion>0.1.0</InformationalVersion>
+    <Description>Declarative System.Diagnostics.Activity tracing for C# methods.</Description>
+    <Authors>konnta0</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/konnta0/Tracepoint</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tracepoint.Analyzer\Tracepoint.Analyzer.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="..\Tracepoint.Weaver\Tracepoint.Weaver.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="build\Tracepoint.targets" Pack="true" PackagePath="build/Tracepoint.targets" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
+  <Target Name="IncludeTracepointBuildAssets" BeforeTargets="_GetPackageFiles">
+    <PropertyGroup>
+      <_TracepointWeaverDir>$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)../Tracepoint.Weaver/bin/$(Configuration)/net10.0))</_TracepointWeaverDir>
+      <_TracepointAnalyzerDir>$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)../Tracepoint.Analyzer/bin/$(Configuration)/netstandard2.0))</_TracepointAnalyzerDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <None Include="$(_TracepointWeaverDir)/Tracepoint.Weaver.dll" Pack="true" PackagePath="build/Tracepoint.Weaver.dll" Visible="false" />
+      <None Include="$(_TracepointWeaverDir)/Mono.Cecil.dll" Pack="true" PackagePath="build/Mono.Cecil.dll" Visible="false" />
+      <None Include="$(_TracepointWeaverDir)/Mono.Cecil.Mdb.dll" Pack="true" PackagePath="build/Mono.Cecil.Mdb.dll" Visible="false" />
+      <None Include="$(_TracepointWeaverDir)/Mono.Cecil.Pdb.dll" Pack="true" PackagePath="build/Mono.Cecil.Pdb.dll" Visible="false" />
+      <None Include="$(_TracepointAnalyzerDir)/Tracepoint.Analyzer.dll" Pack="true" PackagePath="analyzers/dotnet/cs/Tracepoint.Analyzer.dll" Visible="false" />
+    </ItemGroup>
+  </Target>
+</Project>

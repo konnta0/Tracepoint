@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Test Debug
+        run: dotnet test Tracepoint.slnx -c Debug --nologo
+      - name: Test Release
+        run: dotnet test Tracepoint.slnx -c Release --nologo
+      - name: Build benchmarks
+        run: dotnet build benchmarks/Tracepoint.Benchmarks/Tracepoint.Benchmarks.csproj -c Release --nologo
+      - name: Pack
+        run: dotnet pack src/Tracepoint/Tracepoint.csproj -c Release -o artifacts --nologo
+      - name: Package contains the weaver and analyzer
+        run: |
+          tar -tf artifacts/Tracepoint.0.1.0.nupkg | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'
