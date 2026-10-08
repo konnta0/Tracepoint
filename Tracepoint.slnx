@@ -2,6 +2,10 @@
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Tracepoint.Benchmarks/Tracepoint.Benchmarks.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Tracepoint.Sample.Api/Tracepoint.Sample.Api.csproj" />
+    <Project Path="samples/Tracepoint.Sample.AppHost/Tracepoint.Sample.AppHost.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Tracepoint.Analyzer/Tracepoint.Analyzer.csproj" />
     <Project Path="src/Tracepoint.Weaver/Tracepoint.Weaver.csproj" />

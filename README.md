@@ -38,6 +38,16 @@ A woven synchronous method allocates 0 managed bytes when no listener is subscri
 
 Set `TracepointWeave` to `false` to disable weaving.
 
+## Sample
+
+`samples/Tracepoint.Sample.AppHost` is an Aspire host. The API weaves `[Trace]` spans and exports them over OTLP to an OpenTelemetry Collector in that host. The collector stamps `collector.enabled=true` on the resource and forwards telemetry to the Aspire dashboard.
+
+```bash
+dotnet run --project samples/Tracepoint.Sample.AppHost
+```
+
+Then call `GET /match?region=jp` (success, parent/child Tracepoint spans) or `GET /fail` (error status plus exception). Docker is required for the collector container. The default launch profile uses HTTP so the collector can export to the dashboard without TLS.
+
 ## Benchmark
 
 ```bash

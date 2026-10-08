@@ -27,6 +27,26 @@ public sealed class WeaverTests
     }
 
     [Fact]
+    public void WeavesWhenConsumerDoesNotReferenceActivitySource()
+    {
+        var assemblyPath = Emit("""
+            using Tracepoint;
+            public static class Subjects
+            {
+                [Trace]
+                public static int Add(int value) => value + 1;
+            }
+            """);
+
+        var diagnostics = AssemblyWeaver.Weave(assemblyPath, ReferencePaths());
+
+        Assert.Empty(diagnostics);
+        using var assembly = AssemblyDefinition.ReadAssembly(assemblyPath);
+        var method = assembly.MainModule.GetType("Subjects").Methods.Single(candidate => candidate.Name == "Add");
+        Assert.Contains(method.CustomAttributes, attribute => attribute.AttributeType.Name == "WovenAttribute");
+    }
+
+    [Fact]
     public void IntegerTag_BoxesOnlyAfterActivityNullCheck()
     {
         using var assembly = AssemblyDefinition.ReadAssembly(typeof(SmokeSubjects).Assembly.Location);

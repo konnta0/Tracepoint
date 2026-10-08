@@ -18,6 +18,8 @@ jobs:
         run: dotnet test Tracepoint.slnx -c Release --nologo
       - name: Build benchmarks
         run: dotnet build benchmarks/Tracepoint.Benchmarks/Tracepoint.Benchmarks.csproj -c Release --nologo
+      - name: Build Aspire sample
+        run: dotnet build samples/Tracepoint.Sample.AppHost/Tracepoint.Sample.AppHost.csproj -c Release --nologo
       - name: Pack
         run: dotnet pack src/Tracepoint/Tracepoint.csproj -c Release -o artifacts --nologo
       - name: Package contains the weaver and analyzer

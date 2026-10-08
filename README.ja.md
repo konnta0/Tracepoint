@@ -38,6 +38,16 @@ listener が無いとき、織り込まれた同期メソッドの managed alloc
 
 `TracepointWeave` を `false` にすると織り込みを止めます。
 
+## Sample
+
+`samples/Tracepoint.Sample.AppHost` は Aspire のホストです。API は `[Trace]` の span を織り込み、OTLP でそのホスト内の OpenTelemetry Collector へ送ります。Collector は resource に `collector.enabled=true` を付け、Aspire ダッシュボードへ転送します。
+
+```bash
+dotnet run --project samples/Tracepoint.Sample.AppHost
+```
+
+`GET /match?region=jp`（成功、Tracepoint の親子 span）または `GET /fail`（error と exception）を叩いて確認します。Collector コンテナには Docker が必要です。既定の launch profile は HTTP で、Collector が TLS なしでダッシュボードへ送れます。
+
 ## Benchmark
 
 ```bash

@@ -131,7 +131,7 @@ public static class AssemblyWeaver
         var woven = FindType(module, "Tracepoint.WovenAttribute");
         if (activitySource is null || activity is null || exception is null || sources is null || woven is null)
         {
-            error = "Tracepoint could not resolve ActivitySource. Reference the Tracepoint package from this project.";
+            error = "Tracepoint could not resolve Activity or TracepointSources. Reference the Tracepoint package from this project.";
             return false;
         }
 
@@ -199,8 +199,23 @@ public static class AssemblyWeaver
             return local;
         }
 
+        return FindTypeInReferences(module, fullName, [], depth: 0);
+    }
+
+    private static TypeDefinition? FindTypeInReferences(
+        ModuleDefinition module,
+        string fullName,
+        HashSet<string> seen,
+        int depth)
+    {
+        const int maxDepth = 1;
         foreach (var reference in module.AssemblyReferences.ToArray())
         {
+            if (!seen.Add(reference.FullName))
+            {
+                continue;
+            }
+
             AssemblyDefinition resolved;
             try
             {
@@ -215,6 +230,15 @@ public static class AssemblyWeaver
             if (type is not null)
             {
                 return type;
+            }
+
+            if (depth < maxDepth)
+            {
+                var nested = FindTypeInReferences(resolved.MainModule, fullName, seen, depth + 1);
+                if (nested is not null)
+                {
+                    return nested;
+                }
             }
         }
 
