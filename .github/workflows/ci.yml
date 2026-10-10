@@ -24,4 +24,5 @@ jobs:
         run: dotnet pack src/Tracepoint/Tracepoint.csproj -c Release -o artifacts --nologo
       - name: Package contains the weaver and analyzer
         run: |
-          tar -tf artifacts/Tracepoint.0.1.0.nupkg | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'
+          set -euo pipefail
+          unzip -Z1 artifacts/Tracepoint.0.1.0.nupkg | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'

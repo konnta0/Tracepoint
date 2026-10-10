@@ -61,7 +61,8 @@ jobs:
 
       - name: Package contains the weaver and analyzer
         run: |
-          tar -tf "artifacts/Tracepoint.${version}.nupkg" | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'
+          set -euo pipefail
+          unzip -Z1 "artifacts/Tracepoint.${version}.nupkg" | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'
           test -f "artifacts/Tracepoint.${version}.snupkg"
 
       - name: NuGet login
