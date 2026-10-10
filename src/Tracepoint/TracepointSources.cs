@@ -24,6 +24,8 @@ public static class TracepointSources
     /// </summary>
     /// <param name="activity">The active span.</param>
     /// <param name="exception">The exception leaving the traced method.</param>
+    [DebuggerHidden]
+    [DebuggerStepThrough]
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static void RecordException(Activity activity, Exception exception)
     {
@@ -38,7 +40,7 @@ public static class TracepointSources
             ?.InformationalVersion;
         if (string.IsNullOrEmpty(informational))
         {
-            return typeof(TracepointSources).Assembly.GetName().Version?.ToString() ?? "0.1.0";
+            return typeof(TracepointSources).Assembly.GetName().Version?.ToString() ?? "0.1.1";
         }
 
         var plus = informational.IndexOf('+', StringComparison.Ordinal);

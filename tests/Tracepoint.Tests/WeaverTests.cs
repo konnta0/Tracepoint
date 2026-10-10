@@ -47,6 +47,19 @@ public sealed class WeaverTests
     }
 
     [Fact]
+    public void Sync_KeepsASingleUserBody()
+    {
+        using var assembly = AssemblyDefinition.ReadAssembly(typeof(SmokeSubjects).Assembly.Location);
+        var method = assembly.MainModule.Types
+            .SelectMany(type => type.Methods)
+            .Single(candidate => candidate.Name == "SyncReturn");
+
+        Assert.Equal(1, method.Body.Instructions.Count(static instruction =>
+            instruction.Operand is MethodReference called && called.Name == "HasListeners"));
+        Assert.Equal(1, CountArgumentLoads(method, index: 0));
+    }
+
+    [Fact]
     public void IntegerTag_BoxesOnlyAfterActivityNullCheck()
     {
         using var assembly = AssemblyDefinition.ReadAssembly(typeof(SmokeSubjects).Assembly.Location);
@@ -74,6 +87,46 @@ public sealed class WeaverTests
         var result = compilation.Emit(path);
         Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
         return path;
+    }
+
+    private static int CountArgumentLoads(MethodDefinition method, int index)
+    {
+        var count = 0;
+        foreach (var instruction in method.Body.Instructions)
+        {
+            if (instruction.OpCode == OpCodes.Ldarg_0 && index == 0)
+            {
+                count++;
+                continue;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldarg_1 && index == 1)
+            {
+                count++;
+                continue;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldarg_2 && index == 2)
+            {
+                count++;
+                continue;
+            }
+
+            if (instruction.OpCode == OpCodes.Ldarg_3 && index == 3)
+            {
+                count++;
+                continue;
+            }
+
+            if ((instruction.OpCode == OpCodes.Ldarg || instruction.OpCode == OpCodes.Ldarg_S) &&
+                instruction.Operand is ParameterDefinition parameter &&
+                parameter.Index == index)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static IEnumerable<string> ReferencePaths()

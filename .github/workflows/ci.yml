@@ -25,4 +25,4 @@ jobs:
       - name: Package contains the weaver and analyzer
         run: |
           set -euo pipefail
-          unzip -Z1 artifacts/Tracepoint.0.1.0.nupkg | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'
+          unzip -Z1 artifacts/Tracepoint.0.1.1.nupkg | grep -E 'build/Tracepoint.Weaver.dll|build/Mono.Cecil.dll|analyzers/dotnet/cs/Tracepoint.Analyzer.dll|lib/net10.0/Tracepoint.dll'

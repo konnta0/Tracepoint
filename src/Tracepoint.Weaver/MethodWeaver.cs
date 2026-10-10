@@ -66,13 +66,12 @@ internal static class MethodWeaver
         WeaveSync(method, context, spanName, tags);
     }
 
+    // One user body: breakpoints bind to the IL that actually runs. HasListeners still
+    // skips StartActivity; try/finally always wraps so no-listener cost is only the empty handlers.
     private static void WeaveSync(MethodDefinition method, WeaveContext context, string spanName, List<TagSite> tags)
     {
         var body = method.Body;
         ExpandBranches(body);
-        var originalInstructions = body.Instructions.ToArray();
-        var handlerSnapshots = SnapshotHandlers(body);
-        var fastPath = CloneInstructions(originalInstructions);
         var il = body.GetILProcessor();
         body.InitLocals = true;
 
@@ -87,7 +86,10 @@ internal static class MethodWeaver
             body.Variables.Add(result);
         }
 
+        var injected = new List<Instruction>();
+        var keepVisible = new HashSet<Instruction>();
         var afterHandlers = il.Create(OpCodes.Nop);
+        injected.Add(afterHandlers);
         foreach (var instruction in body.Instructions.ToArray())
         {
             if (instruction.OpCode != OpCodes.Ret)
@@ -104,28 +106,31 @@ internal static class MethodWeaver
             {
                 var store = il.Create(OpCodes.Stloc, result);
                 il.InsertBefore(instruction, store);
-                var leave = il.Create(OpCodes.Leave, afterHandlers);
-                Retarget(body, instruction, leave);
-                il.Replace(instruction, leave);
+                injected.Add(store);
             }
-            else
-            {
-                var leave = il.Create(OpCodes.Leave, afterHandlers);
-                Retarget(body, instruction, leave);
-                il.Replace(instruction, leave);
-            }
+
+            var leave = il.Create(OpCodes.Leave, afterHandlers);
+            MoveSequencePoint(method, instruction, leave);
+            keepVisible.Add(leave);
+            Retarget(body, instruction, leave);
+            il.Replace(instruction, leave);
         }
 
-        var anchor = body.Instructions[0];
-
-        var prologue = new List<Instruction>();
-        prologue.Add(il.Create(OpCodes.Ldsfld, context.SourceField));
-        prologue.Add(il.Create(OpCodes.Ldstr, spanName));
-        prologue.Add(il.Create(OpCodes.Ldc_I4_0));
-        prologue.Add(il.Create(OpCodes.Callvirt, context.StartActivity));
-        prologue.Add(il.Create(OpCodes.Stloc, activity));
+        var userStart = body.Instructions[0];
+        var prologue = new List<Instruction>
+        {
+            il.Create(OpCodes.Ldsfld, context.SourceField),
+            il.Create(OpCodes.Callvirt, context.HasListeners),
+            il.Create(OpCodes.Brfalse, userStart),
+            il.Create(OpCodes.Ldsfld, context.SourceField),
+            il.Create(OpCodes.Ldstr, spanName),
+            il.Create(OpCodes.Ldc_I4_0),
+            il.Create(OpCodes.Callvirt, context.StartActivity),
+            il.Create(OpCodes.Stloc, activity),
+        };
         AppendTags(il, prologue, tags, context, instructions => instructions.Add(il.Create(OpCodes.Ldloc, activity)));
-        InsertBefore(il, anchor, prologue);
+        InsertBefore(il, userStart, prologue);
+        injected.AddRange(prologue);
 
         var catchStart = il.Create(OpCodes.Nop);
         var rethrow = il.Create(OpCodes.Rethrow);
@@ -133,33 +138,69 @@ internal static class MethodWeaver
         var endFinally = il.Create(OpCodes.Endfinally);
         var skipDispose = il.Create(OpCodes.Nop);
         var skipRecord = il.Create(OpCodes.Nop);
+        var storeException = il.Create(OpCodes.Stloc, exception);
+        var loadActivityForRecord = il.Create(OpCodes.Ldloc, activity);
+        var branchSkipRecord = il.Create(OpCodes.Brfalse, skipRecord);
+        var loadActivityForRecordCall = il.Create(OpCodes.Ldloc, activity);
+        var loadException = il.Create(OpCodes.Ldloc, exception);
+        var record = il.Create(OpCodes.Call, context.RecordException);
+        var loadActivityForDispose = il.Create(OpCodes.Ldloc, activity);
+        var branchSkipDispose = il.Create(OpCodes.Brfalse, skipDispose);
+        var loadActivityForDisposeCall = il.Create(OpCodes.Ldloc, activity);
+        var dispose = il.Create(OpCodes.Callvirt, context.Dispose);
+        Instruction? loadResult = null;
+        var ret = il.Create(OpCodes.Ret);
 
         il.Append(catchStart);
         CloseOpenHandlers(body, catchStart);
-        il.Append(il.Create(OpCodes.Stloc, exception));
-        il.Append(il.Create(OpCodes.Ldloc, activity));
-        il.Append(il.Create(OpCodes.Brfalse, skipRecord));
-        il.Append(il.Create(OpCodes.Ldloc, activity));
-        il.Append(il.Create(OpCodes.Ldloc, exception));
-        il.Append(il.Create(OpCodes.Call, context.RecordException));
+        il.Append(storeException);
+        il.Append(loadActivityForRecord);
+        il.Append(branchSkipRecord);
+        il.Append(loadActivityForRecordCall);
+        il.Append(loadException);
+        il.Append(record);
         il.Append(skipRecord);
         il.Append(rethrow);
 
         il.Append(finallyStart);
-        il.Append(il.Create(OpCodes.Ldloc, activity));
-        il.Append(il.Create(OpCodes.Brfalse, skipDispose));
-        il.Append(il.Create(OpCodes.Ldloc, activity));
-        il.Append(il.Create(OpCodes.Callvirt, context.Dispose));
+        il.Append(loadActivityForDispose);
+        il.Append(branchSkipDispose);
+        il.Append(loadActivityForDisposeCall);
+        il.Append(dispose);
         il.Append(skipDispose);
         il.Append(endFinally);
 
         il.Append(afterHandlers);
         if (result is not null)
         {
-            il.Append(il.Create(OpCodes.Ldloc, result));
+            loadResult = il.Create(OpCodes.Ldloc, result);
+            il.Append(loadResult);
         }
 
-        il.Append(il.Create(OpCodes.Ret));
+        il.Append(ret);
+
+        injected.Add(catchStart);
+        injected.Add(storeException);
+        injected.Add(loadActivityForRecord);
+        injected.Add(branchSkipRecord);
+        injected.Add(loadActivityForRecordCall);
+        injected.Add(loadException);
+        injected.Add(record);
+        injected.Add(skipRecord);
+        injected.Add(rethrow);
+        injected.Add(finallyStart);
+        injected.Add(loadActivityForDispose);
+        injected.Add(branchSkipDispose);
+        injected.Add(loadActivityForDisposeCall);
+        injected.Add(dispose);
+        injected.Add(skipDispose);
+        injected.Add(endFinally);
+        if (loadResult is not null)
+        {
+            injected.Add(loadResult);
+        }
+
+        injected.Add(ret);
 
         var tryStart = prologue[0];
         body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
@@ -178,21 +219,7 @@ internal static class MethodWeaver
             HandlerEnd = afterHandlers,
         });
 
-        var slowStart = prologue[0];
-        var fastPathInstructions = new List<Instruction>
-        {
-            il.Create(OpCodes.Ldsfld, context.SourceField),
-            il.Create(OpCodes.Callvirt, context.HasListeners),
-            il.Create(OpCodes.Brtrue, slowStart),
-        };
-        foreach (var instruction in originalInstructions)
-        {
-            fastPathInstructions.Add(fastPath[instruction]);
-        }
-
-        InsertBefore(il, slowStart, fastPathInstructions);
-        AddFastPathHandlers(body, handlerSnapshots, fastPath, slowStart);
-
+        HideInjectedSequencePoints(method, injected, keepVisible);
         body.MaxStackSize = Math.Max(body.MaxStackSize, 8) + 4;
         method.CustomAttributes.Add(new CustomAttribute(context.WovenConstructor));
     }
@@ -331,6 +358,7 @@ internal static class MethodWeaver
 
         block.Add(skip);
         InsertBefore(il, outerTry, block);
+        HideInjectedSequencePoints(moveNext, block, null);
         foreach (var handler in moveNext.Body.ExceptionHandlers)
         {
             if (handler.TryStart == outerTry)
@@ -462,7 +490,9 @@ internal static class MethodWeaver
                 return false;
             }
 
-            InsertBefore(il, sequenceStart, EmitStop(il, activityField, context, exception));
+            var stop = EmitStop(il, activityField, context, exception);
+            InsertBefore(il, sequenceStart, stop);
+            HideInjectedSequencePoints(moveNext, stop, null);
         }
 
         moveNext.Body.MaxStackSize = Math.Max(moveNext.Body.MaxStackSize, 8) + 4;
@@ -802,112 +832,65 @@ internal static class MethodWeaver
         return new WeaveDiagnostic(id, message, point?.Document?.Url, point?.StartLine ?? 0, point?.StartColumn ?? 0);
     }
 
-    private static List<HandlerSnapshot> SnapshotHandlers(MethodBody body)
+    private static void MoveSequencePoint(MethodDefinition method, Instruction from, Instruction to)
     {
-        var snapshots = new List<HandlerSnapshot>(body.ExceptionHandlers.Count);
-        foreach (var handler in body.ExceptionHandlers)
+        var points = method.DebugInformation?.SequencePoints;
+        if (points is null)
         {
-            snapshots.Add(new HandlerSnapshot(
-                handler.HandlerType,
-                handler.CatchType,
-                handler.TryStart,
-                handler.TryEnd,
-                handler.HandlerStart,
-                handler.HandlerEnd,
-                handler.FilterStart));
+            return;
         }
 
-        return snapshots;
-    }
-
-    private static Dictionary<Instruction, Instruction> CloneInstructions(IReadOnlyList<Instruction> source)
-    {
-        var map = new Dictionary<Instruction, Instruction>(source.Count);
-        foreach (var instruction in source)
+        for (var i = 0; i < points.Count; i++)
         {
-            var clone = Instruction.Create(OpCodes.Nop);
-            clone.OpCode = instruction.OpCode;
-            clone.Operand = instruction.Operand;
-            map.Add(instruction, clone);
-        }
-
-        foreach (var instruction in source)
-        {
-            var clone = map[instruction];
-            switch (clone.Operand)
+            var point = points[i];
+            if (point.Offset != from.Offset)
             {
-                case Instruction target:
-                    clone.Operand = map[target];
-                    break;
-                case Instruction[] targets:
-                    var remapped = new Instruction[targets.Length];
-                    for (var i = 0; i < targets.Length; i++)
-                    {
-                        remapped[i] = map[targets[i]];
-                    }
-
-                    clone.Operand = remapped;
-                    break;
+                continue;
             }
-        }
 
-        return map;
+            points[i] = new SequencePoint(to, point.Document)
+            {
+                StartLine = point.StartLine,
+                StartColumn = point.StartColumn,
+                EndLine = point.EndLine,
+                EndColumn = point.EndColumn,
+            };
+            return;
+        }
     }
 
-    private static void AddFastPathHandlers(
-        MethodBody body,
-        List<HandlerSnapshot> snapshots,
-        Dictionary<Instruction, Instruction> map,
-        Instruction slowStart)
+    private static void HideInjectedSequencePoints(
+        MethodDefinition method,
+        List<Instruction> injected,
+        HashSet<Instruction>? keepVisible)
     {
-        for (var i = snapshots.Count - 1; i >= 0; i--)
+        var debug = method.DebugInformation;
+        if (debug is null)
         {
-            var snapshot = snapshots[i];
-            body.ExceptionHandlers.Insert(0, new ExceptionHandler(snapshot.HandlerType)
+            return;
+        }
+
+        var document = debug.SequencePoints.FirstOrDefault(static point => point.Document is not null)?.Document;
+        if (document is null)
+        {
+            return;
+        }
+
+        foreach (var instruction in injected)
+        {
+            if (keepVisible is not null && keepVisible.Contains(instruction))
             {
-                CatchType = snapshot.CatchType,
-                TryStart = map[snapshot.TryStart],
-                TryEnd = snapshot.TryEnd is null ? slowStart : map[snapshot.TryEnd],
-                HandlerStart = map[snapshot.HandlerStart],
-                HandlerEnd = snapshot.HandlerEnd is null ? slowStart : map[snapshot.HandlerEnd],
-                FilterStart = snapshot.FilterStart is null ? null : map[snapshot.FilterStart],
+                continue;
+            }
+
+            debug.SequencePoints.Add(new SequencePoint(instruction, document)
+            {
+                StartLine = 0xFEEFEE,
+                EndLine = 0xFEEFEE,
+                StartColumn = 0,
+                EndColumn = 0,
             });
         }
-    }
-
-    private readonly struct HandlerSnapshot
-    {
-        internal HandlerSnapshot(
-            ExceptionHandlerType handlerType,
-            TypeReference? catchType,
-            Instruction tryStart,
-            Instruction? tryEnd,
-            Instruction handlerStart,
-            Instruction? handlerEnd,
-            Instruction? filterStart)
-        {
-            HandlerType = handlerType;
-            CatchType = catchType;
-            TryStart = tryStart;
-            TryEnd = tryEnd;
-            HandlerStart = handlerStart;
-            HandlerEnd = handlerEnd;
-            FilterStart = filterStart;
-        }
-
-        internal ExceptionHandlerType HandlerType { get; }
-
-        internal TypeReference? CatchType { get; }
-
-        internal Instruction TryStart { get; }
-
-        internal Instruction? TryEnd { get; }
-
-        internal Instruction HandlerStart { get; }
-
-        internal Instruction? HandlerEnd { get; }
-
-        internal Instruction? FilterStart { get; }
     }
 }
 
