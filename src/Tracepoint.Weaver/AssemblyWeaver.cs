@@ -8,6 +8,15 @@ namespace Tracepoint.Weaving;
 /// </summary>
 public static class AssemblyWeaver
 {
+    private static readonly string[] RuntimeAssemblies =
+    [
+        "System.Diagnostics.DiagnosticSource",
+        "System.Runtime",
+        "System.Private.CoreLib",
+        "netstandard",
+        "mscorlib",
+    ];
+
     /// <summary>
     /// Weaves <paramref name="assemblyPath"/> in place.
     /// </summary>
@@ -33,6 +42,11 @@ public static class AssemblyWeaver
         var changed = false;
         foreach (var type in EnumerateTypes(assembly.MainModule.Types))
         {
+            if (!type.HasMethods)
+            {
+                continue;
+            }
+
             foreach (var method in type.Methods)
             {
                 if (!HasAttribute(method, "Tracepoint.TraceAttribute"))
@@ -88,6 +102,7 @@ public static class AssemblyWeaver
         {
             AssemblyResolver = resolver,
             InMemory = true,
+            ReadingMode = ReadingMode.Deferred,
             ReadSymbols = symbols,
             SymbolReaderProvider = symbols ? new DefaultSymbolReaderProvider(throwIfNoSymbol: false) : null,
         };
@@ -199,7 +214,56 @@ public static class AssemblyWeaver
             return local;
         }
 
-        return FindTypeInReferences(module, fullName, [], depth: 0);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (fullName.StartsWith("Tracepoint.", StringComparison.Ordinal))
+        {
+            return ResolveTypeFromAssembly(module, fullName, "Tracepoint", seen);
+        }
+
+        foreach (var assemblyName in RuntimeAssemblies)
+        {
+            var type = ResolveTypeFromAssembly(module, fullName, assemblyName, seen);
+            if (type is not null)
+            {
+                return type;
+            }
+        }
+
+        var tracepoint = ResolveTypeFromAssembly(module, "Tracepoint.TracepointSources", "Tracepoint", seen);
+        return tracepoint is null
+            ? null
+            : FindTypeInReferences(tracepoint.Module, fullName, seen, depth: 0);
+    }
+
+    private static TypeDefinition? ResolveTypeFromAssembly(
+        ModuleDefinition module,
+        string fullName,
+        string assemblyName,
+        HashSet<string> seen)
+    {
+        foreach (var reference in module.AssemblyReferences)
+        {
+            if (!string.Equals(reference.Name, assemblyName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!seen.Add(reference.FullName))
+            {
+                return null;
+            }
+
+            try
+            {
+                return module.AssemblyResolver.Resolve(reference)?.MainModule.GetType(fullName);
+            }
+            catch (AssemblyResolutionException)
+            {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     private static TypeDefinition? FindTypeInReferences(
@@ -209,7 +273,7 @@ public static class AssemblyWeaver
         int depth)
     {
         const int maxDepth = 1;
-        foreach (var reference in module.AssemblyReferences.ToArray())
+        foreach (var reference in module.AssemblyReferences)
         {
             if (!seen.Add(reference.FullName))
             {
@@ -268,9 +332,11 @@ public static class AssemblyWeaver
             return false;
         }
 
+        var shortName = fullName.AsSpan(fullName.LastIndexOf('.') + 1);
         foreach (var attribute in provider.CustomAttributes)
         {
-            if (attribute.AttributeType.FullName == fullName)
+            if (attribute.AttributeType.Name.AsSpan().SequenceEqual(shortName) &&
+                attribute.AttributeType.FullName == fullName)
             {
                 return true;
             }
@@ -279,11 +345,23 @@ public static class AssemblyWeaver
         return false;
     }
 
+    // Cecil's ModuleDefinition is not thread-safe, so candidates are found and rewritten on one thread.
+    // Compiler-generated types never carry [Trace]; their bodies load only if an async method resolves them.
     private static IEnumerable<TypeDefinition> EnumerateTypes(IEnumerable<TypeDefinition> types)
     {
         foreach (var type in types)
         {
+            if (type.Name.Length > 0 && type.Name[0] == '<')
+            {
+                continue;
+            }
+
             yield return type;
+            if (!type.HasNestedTypes)
+            {
+                continue;
+            }
+
             foreach (var nested in EnumerateTypes(type.NestedTypes))
             {
                 yield return nested;
