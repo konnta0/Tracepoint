@@ -12,6 +12,7 @@
     <Project Path="src/Tracepoint/Tracepoint.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Tracepoint.Aot/Tracepoint.Aot.csproj" />
     <Project Path="tests/Tracepoint.Smoke/Tracepoint.Smoke.csproj" />
     <Project Path="tests/Tracepoint.Tests/Tracepoint.Tests.csproj" />
   </Folder>

@@ -73,6 +73,7 @@ public static class AssemblyWeaver
             return diagnostics;
         }
 
+        NormalizeSequencePoints(assembly.MainModule);
         WriteAssembly(assembly, assemblyPath, readSymbols && assembly.MainModule.HasSymbols);
         return diagnostics;
     }
@@ -363,6 +364,65 @@ public static class AssemblyWeaver
             }
 
             foreach (var nested in EnumerateTypes(type.NestedTypes))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    private static void NormalizeSequencePoints(ModuleDefinition module)
+    {
+        foreach (var type in WalkTypes(module.Types))
+        {
+            if (!type.HasMethods)
+            {
+                continue;
+            }
+
+            foreach (var method in type.Methods)
+            {
+                var debug = method.DebugInformation;
+                if (!method.HasBody || debug is null || !debug.HasSequencePoints)
+                {
+                    continue;
+                }
+
+                _ = method.Body.CodeSize;
+                var unique = new SortedDictionary<int, SequencePoint>();
+                foreach (var point in debug.SequencePoints)
+                {
+                    if (point.Offset < 0)
+                    {
+                        continue;
+                    }
+
+                    if (!unique.TryGetValue(point.Offset, out var existing) ||
+                        (existing.IsHidden && !point.IsHidden))
+                    {
+                        unique[point.Offset] = point;
+                    }
+                }
+
+                debug.SequencePoints.Clear();
+                foreach (var point in unique.Values)
+                {
+                    debug.SequencePoints.Add(point);
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<TypeDefinition> WalkTypes(IEnumerable<TypeDefinition> types)
+    {
+        foreach (var type in types)
+        {
+            yield return type;
+            if (!type.HasNestedTypes)
+            {
+                continue;
+            }
+
+            foreach (var nested in WalkTypes(type.NestedTypes))
             {
                 yield return nested;
             }

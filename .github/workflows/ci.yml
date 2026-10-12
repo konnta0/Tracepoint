@@ -20,6 +20,10 @@ jobs:
         run: dotnet build benchmarks/Tracepoint.Benchmarks/Tracepoint.Benchmarks.csproj -c Release --nologo
       - name: Build Aspire sample
         run: dotnet build samples/Tracepoint.Sample.AppHost/Tracepoint.Sample.AppHost.csproj -c Release --nologo
+      - name: Publish Native AOT smoke
+        run: dotnet publish tests/Tracepoint.Aot/Tracepoint.Aot.csproj -c Release --nologo
+      - name: Run Native AOT smoke
+        run: ./tests/Tracepoint.Aot/bin/Release/net10.0/linux-x64/publish/Tracepoint.Aot
       - name: Pack
         run: dotnet pack src/Tracepoint/Tracepoint.csproj -c Release -o artifacts --nologo
       - name: Package contains the weaver and analyzer

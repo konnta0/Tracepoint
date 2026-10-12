@@ -86,10 +86,7 @@ internal static class MethodWeaver
             body.Variables.Add(result);
         }
 
-        var injected = new List<Instruction>();
-        var keepVisible = new HashSet<Instruction>();
         var afterHandlers = il.Create(OpCodes.Nop);
-        injected.Add(afterHandlers);
         foreach (var instruction in body.Instructions.ToArray())
         {
             if (instruction.OpCode != OpCodes.Ret)
@@ -106,12 +103,10 @@ internal static class MethodWeaver
             {
                 var store = il.Create(OpCodes.Stloc, result);
                 il.InsertBefore(instruction, store);
-                injected.Add(store);
             }
 
             var leave = il.Create(OpCodes.Leave, afterHandlers);
             MoveSequencePoint(method, instruction, leave);
-            keepVisible.Add(leave);
             Retarget(body, instruction, leave);
             il.Replace(instruction, leave);
         }
@@ -130,7 +125,6 @@ internal static class MethodWeaver
         };
         AppendTags(il, prologue, tags, context, instructions => instructions.Add(il.Create(OpCodes.Ldloc, activity)));
         InsertBefore(il, userStart, prologue);
-        injected.AddRange(prologue);
 
         var catchStart = il.Create(OpCodes.Nop);
         var rethrow = il.Create(OpCodes.Rethrow);
@@ -179,29 +173,6 @@ internal static class MethodWeaver
 
         il.Append(ret);
 
-        injected.Add(catchStart);
-        injected.Add(storeException);
-        injected.Add(loadActivityForRecord);
-        injected.Add(branchSkipRecord);
-        injected.Add(loadActivityForRecordCall);
-        injected.Add(loadException);
-        injected.Add(record);
-        injected.Add(skipRecord);
-        injected.Add(rethrow);
-        injected.Add(finallyStart);
-        injected.Add(loadActivityForDispose);
-        injected.Add(branchSkipDispose);
-        injected.Add(loadActivityForDisposeCall);
-        injected.Add(dispose);
-        injected.Add(skipDispose);
-        injected.Add(endFinally);
-        if (loadResult is not null)
-        {
-            injected.Add(loadResult);
-        }
-
-        injected.Add(ret);
-
         var tryStart = prologue[0];
         body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
         {
@@ -219,7 +190,10 @@ internal static class MethodWeaver
             HandlerEnd = afterHandlers,
         });
 
-        HideInjectedSequencePoints(method, injected, keepVisible);
+        HideSequencePoint(method, prologue[0]);
+        HideSequencePoint(method, catchStart);
+        HideSequencePoint(method, finallyStart);
+        HideSequencePoint(method, afterHandlers);
         body.MaxStackSize = Math.Max(body.MaxStackSize, 8) + 4;
         method.CustomAttributes.Add(new CustomAttribute(context.WovenConstructor));
     }
@@ -358,7 +332,7 @@ internal static class MethodWeaver
 
         block.Add(skip);
         InsertBefore(il, outerTry, block);
-        HideInjectedSequencePoints(moveNext, block, null);
+        HideSequencePoint(moveNext, block[0]);
         foreach (var handler in moveNext.Body.ExceptionHandlers)
         {
             if (handler.TryStart == outerTry)
@@ -492,7 +466,7 @@ internal static class MethodWeaver
 
             var stop = EmitStop(il, activityField, context, exception);
             InsertBefore(il, sequenceStart, stop);
-            HideInjectedSequencePoints(moveNext, stop, null);
+            HideSequencePoint(moveNext, stop[0]);
         }
 
         moveNext.Body.MaxStackSize = Math.Max(moveNext.Body.MaxStackSize, 8) + 4;
@@ -859,10 +833,7 @@ internal static class MethodWeaver
         }
     }
 
-    private static void HideInjectedSequencePoints(
-        MethodDefinition method,
-        List<Instruction> injected,
-        HashSet<Instruction>? keepVisible)
+    private static void HideSequencePoint(MethodDefinition method, Instruction instruction)
     {
         var debug = method.DebugInformation;
         if (debug is null)
@@ -876,21 +847,13 @@ internal static class MethodWeaver
             return;
         }
 
-        foreach (var instruction in injected)
+        debug.SequencePoints.Add(new SequencePoint(instruction, document)
         {
-            if (keepVisible is not null && keepVisible.Contains(instruction))
-            {
-                continue;
-            }
-
-            debug.SequencePoints.Add(new SequencePoint(instruction, document)
-            {
-                StartLine = 0xFEEFEE,
-                EndLine = 0xFEEFEE,
-                StartColumn = 0,
-                EndColumn = 0,
-            });
-        }
+            StartLine = 0xFEEFEE,
+            EndLine = 0xFEEFEE,
+            StartColumn = 0,
+            EndColumn = 0,
+        });
     }
 }
 
